@@ -1,14 +1,18 @@
 // server.js
 // ... (istniejące importy)
-import NodeCache from "node-cache"; // Zainstaluj: npm install node-cache
+import NodeCache from "node-cache";
 
 const app = express();
 // ... (reszta kodu)
 
-// Konfiguracja cache:
-// stdTTL: standardowy czas życia w sekundach (np. 1 godzina = 3600 sekund)
-// checkperiod: co ile sekund sprawdzać i usuwać wygasłe elementy
-const myCache = new NodeCache({ stdTTL: 3600, checkperiod: 120 }); // Cache na 1 godzinę
+// Konfiguracja cache
+const myCache = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
+
+// Middleware dla ustawienia nagłówków JSON
+app.use((req, res, next) => {
+  res.setHeader("Content-Type", "application/json");
+  next();
+});
 
 // ... (reszta kodu, zmienne środowiskowe, CORS itp.)
 
@@ -16,20 +20,21 @@ app.get("/api/Youtube", async (req, res) => {
   const query = req.query.q;
   const maxResults = parseInt(req.query.maxResults, 10) || 10;
 
+  // Zawsze zwracaj JSON, nawet przy błędach walidacji
   if (!query) {
-    return res
-      .status(400)
-      .json({ error: 'Parametr zapytania "q" jest wymagany.' });
+    return res.status(400).json({
+      error: 'Parametr zapytania "q" jest wymagany.',
+      code: 400,
+    });
   }
 
-  // Tworzymy unikalny klucz dla cache na podstawie zapytania i maxResults
   const cacheKey = `${query.toLowerCase()}_${maxResults}`;
 
-  // 1. Sprawdź, czy dane są w cache
+  // Sprawdź cache
   const cachedData = myCache.get(cacheKey);
   if (cachedData) {
     console.log(`Pobrano z cache dla zapytania: '${query}'`);
-    return res.json(cachedData); // Zwróć dane z cache zamiast pytać YouTube API
+    return res.json(cachedData);
   }
 
   try {
@@ -40,25 +45,93 @@ app.get("/api/Youtube", async (req, res) => {
     console.log(`Wysyłam zapytanie do YouTube API (query: '${query}')`);
 
     const response = await fetch(youtubeApiUrl);
-    const data = await response.json();
 
-    if (!response.ok) {
-      console.error("Błąd z YouTube API:", data);
+    // Sprawdź czy odpowiedź to JSON
+    const contentType = response.headers.get("content-type");
+    let data;
+
+    if (contentType && contentType.includes("application/json")) {
+      data = await response.json();
+    } else {
+      // Jeśli nie JSON, prawdopodobnie HTML error page
+      const textResponse = await response.text();
+      console.error(
+        "YouTube API zwróciło nie-JSON odpowiedź:",
+        textResponse.substring(0, 200)
+      );
+
       return res.status(response.status).json({
-        error: data.error ? data.error.message : "Nieznany błąd z YouTube API",
-        code: data.error ? data.error.code : response.status,
+        error: `YouTube API error: ${response.status} ${response.statusText}`,
+        code: response.status,
+        details: "API returned non-JSON response",
       });
     }
 
-    // 2. Zapisz wyniki w cache po pobraniu z YouTube API
+    if (!response.ok) {
+      console.error("Błąd z YouTube API:", data);
+
+      // Zawsze zwracaj JSON przy błędach
+      return res.status(response.status).json({
+        error: data.error
+          ? data.error.message
+          : `YouTube API error: ${response.statusText}`,
+        code: data.error ? data.error.code : response.status,
+        details: data.error ? data.error : "Unknown YouTube API error",
+      });
+    }
+
+    // Sprawdź czy dane mają prawidłową strukturę
+    if (!data || !data.items) {
+      console.error(
+        "YouTube API zwróciło nieprawidłową strukturę danych:",
+        data
+      );
+      return res.status(500).json({
+        error: "Invalid data structure from YouTube API",
+        code: 500,
+        details: "Missing items array in response",
+      });
+    }
+
+    // Zapisz w cache i zwróć wyniki
     myCache.set(cacheKey, data);
-    console.log(`Zapisano w cache dla zapytania: '${query}'`);
+    console.log(
+      `Zapisano w cache dla zapytania: '${query}' (${data.items.length} items)`
+    );
 
     res.json(data);
   } catch (error) {
     console.error("Błąd wewnętrzny serwera:", error);
-    res.status(500).json({ error: "Wystąpił błąd wewnętrzny serwera." });
+
+    // Zawsze zwracaj JSON, nawet przy wyjątkach
+    res.status(500).json({
+      error: "Wystąpił błąd wewnętrzny serwera.",
+      code: 500,
+      details: error.message || "Internal server error",
+    });
   }
+});
+
+// Globalny handler błędów - zawsze zwraca JSON
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+
+  if (!res.headersSent) {
+    res.status(500).json({
+      error: "Internal server error",
+      code: 500,
+      details: err.message || "Unknown error occurred",
+    });
+  }
+});
+
+// 404 handler - zawsze zwraca JSON
+app.use((req, res) => {
+  res.status(404).json({
+    error: "Endpoint not found",
+    code: 404,
+    details: `Path ${req.path} not found`,
+  });
 });
 
 // ... (reszta kodu)
