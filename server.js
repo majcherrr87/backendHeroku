@@ -340,6 +340,80 @@ app.delete("/api/cache", (req, res) => {
     quotaReset: false, // Możesz dodać logikę resetowania quota jeśli potrzebne
   });
 });
+app.get("/api/video/stream/:videoId", async (req, res) => {
+  try {
+    const { videoId } = req.params;
+
+    if (!videoId) {
+      return res.status(400).json({ error: "Video ID is required" });
+    }
+
+    // Opcja 1: Używając ytdl-core
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+    // Sprawdź czy wideo jest dostępne
+    const isValid = await ytdl.validateURL(videoUrl);
+    if (!isValid) {
+      return res
+        .status(404)
+        .json({ error: "Video not found or not accessible" });
+    }
+
+    // Pobierz informacje o wideo
+    const info = await ytdl.getInfo(videoUrl);
+
+    // Znajdź najlepszą jakość dla mobile
+    const formats = ytdl.filterFormats(info.formats, "videoandaudio");
+    const bestFormat = ytdl.chooseFormat(formats, {
+      quality: "highestvideo",
+      filter: (format) => format.container === "mp4",
+    });
+
+    if (!bestFormat) {
+      return res.status(404).json({ error: "No suitable video format found" });
+    }
+
+    const response = {
+      streamUrl: bestFormat.url,
+      title: info.videoDetails.title,
+      duration: parseInt(info.videoDetails.lengthSeconds),
+      thumbnail: info.videoDetails.thumbnails[0]?.url,
+      channelName: info.videoDetails.author.name,
+      viewCount: info.videoDetails.viewCount,
+      publishDate: info.videoDetails.publishDate,
+    };
+
+    res.json(response);
+  } catch (error) {
+    console.error("Error fetching video stream:", error);
+    res.status(500).json({
+      error: "Failed to fetch video stream",
+      details: error.message,
+    });
+  }
+});
+// Endpoint do sprawdzania dostępności wideo
+app.get("/api/video/check/:videoId", async (req, res) => {
+  try {
+    const { videoId } = req.params;
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+    const isValid = await ytdl.validateURL(videoUrl);
+    const info = isValid ? await ytdl.getBasicInfo(videoUrl) : null;
+
+    res.json({
+      isPlayable: isValid && info,
+      isEmbeddable: info?.videoDetails?.isEmbeddable || false,
+      isPrivate: info?.videoDetails?.isPrivate || false,
+      isLive: info?.videoDetails?.isLiveContent || false,
+    });
+  } catch (error) {
+    res.json({
+      isPlayable: false,
+      error: error.message,
+    });
+  }
+});
 
 // 404 JSON handler
 app.use("*", (req, res) => {
