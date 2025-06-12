@@ -38,22 +38,22 @@ async function checkQuotaStatus() {
   if (now - lastQuotaCheck < QUOTA_CHECK_INTERVAL && quotaExhausted) {
     return false; // Nie sprawdzaj zbyt często
   }
-  
+
   try {
     const testUrl = `https://www.googleapis.com/youtube/v3/videos?part=id&id=dQw4w9WgXcQ&key=${YOUTUBE_API_KEY}`;
     const response = await fetch(testUrl, {
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(5000),
     });
-    
+
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      if (data.error?.errors?.some(e => e.reason === "quotaExceeded")) {
+      if (data.error?.errors?.some((e) => e.reason === "quotaExceeded")) {
         quotaExhausted = true;
         lastQuotaCheck = now;
         return false;
       }
     }
-    
+
     quotaExhausted = false;
     lastQuotaCheck = now;
     return true;
@@ -92,16 +92,16 @@ app.get("/health", (req, res) => {
 app.get("/api/Youtube/quota-status", async (req, res) => {
   try {
     const quotaOk = await checkQuotaStatus();
-    res.status(200).json({ 
+    res.status(200).json({
       quotaOk,
       quotaExhausted,
       lastCheck: new Date(lastQuotaCheck).toISOString(),
-      cacheSize: myCache.keys().length
+      cacheSize: myCache.keys().length,
     });
   } catch (error) {
-    res.status(500).json({ 
-      error: "Error checking quota", 
-      details: error.message 
+    res.status(500).json({
+      error: "Error checking quota",
+      details: error.message,
     });
   }
 });
@@ -110,12 +110,12 @@ app.get("/api/Youtube/quota-status", async (req, res) => {
 async function makeYouTubeApiCall(url, cacheKey, description = "API call") {
   try {
     console.log(`Making ${description}:`, url);
-    
+
     const response = await fetch(url, {
       method: "GET",
-      headers: { 
+      headers: {
         Accept: "application/json",
-        "User-Agent": "YouTube-API-Server/1.0"
+        "User-Agent": "YouTube-API-Server/1.0",
       },
       signal: AbortSignal.timeout(15000),
     });
@@ -136,10 +136,10 @@ async function makeYouTubeApiCall(url, cacheKey, description = "API call") {
 
     if (!response.ok) {
       // Sprawdź czy to problem z quota
-      if (data.error?.errors?.some(e => e.reason === "quotaExceeded")) {
+      if (data.error?.errors?.some((e) => e.reason === "quotaExceeded")) {
         quotaExhausted = true;
         lastQuotaCheck = Date.now();
-        
+
         // Spróbuj zwrócić dane z cache jeśli dostępne
         const cachedData = myCache.get(cacheKey);
         if (cachedData) {
@@ -147,26 +147,27 @@ async function makeYouTubeApiCall(url, cacheKey, description = "API call") {
           return {
             success: true,
             data: { ...cachedData, _fromCache: true, _quotaExceeded: true },
-            fromCache: true
+            fromCache: true,
           };
         }
-        
+
         throw new Error(`Quota exceeded and no cached data available`);
       }
-      
-      throw new Error(data.error?.message || `YouTube API error: ${response.status}`);
+
+      throw new Error(
+        data.error?.message || `YouTube API error: ${response.status}`
+      );
     }
 
     // Zapisz do cache
     if (data && cacheKey) {
       myCache.set(cacheKey, data);
     }
-    
+
     return { success: true, data, fromCache: false };
-    
   } catch (error) {
     console.error(`${description} failed:`, error.message);
-    
+
     // Spróbuj zwrócić dane z cache
     const cachedData = myCache.get(cacheKey);
     if (cachedData) {
@@ -174,10 +175,10 @@ async function makeYouTubeApiCall(url, cacheKey, description = "API call") {
       return {
         success: true,
         data: { ...cachedData, _fromCache: true, _apiError: error.message },
-        fromCache: true
+        fromCache: true,
       };
     }
-    
+
     throw error;
   }
 }
@@ -195,7 +196,7 @@ app.get("/api/Youtube", async (req, res) => {
   }
 
   const cacheKey = `search_${query.toLowerCase().trim()}_${maxResults}`;
-  
+
   // Sprawdź cache najpierw
   const cachedData = myCache.get(cacheKey);
   if (cachedData) {
@@ -208,9 +209,10 @@ app.get("/api/Youtube", async (req, res) => {
       error: "YouTube API quota exceeded",
       code: 429,
       quotaExceeded: true,
-      message: "Serwer osiągnął limit zapytań do YouTube API. Cache może zawierać starsze dane.",
+      message:
+        "Serwer osiągnął limit zapytań do YouTube API. Cache może zawierać starsze dane.",
       retryAfter: "Spróbuj ponownie za kilka godzin",
-      cacheAvailable: myCache.keys().length > 0
+      cacheAvailable: myCache.keys().length > 0,
     });
   }
 
@@ -218,9 +220,13 @@ app.get("/api/Youtube", async (req, res) => {
     const youtubeApiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(
       query
     )}&type=video&maxResults=${maxResults}&key=${YOUTUBE_API_KEY}`;
-    
-    const result = await makeYouTubeApiCall(youtubeApiUrl, cacheKey, "YouTube search");
-    
+
+    const result = await makeYouTubeApiCall(
+      youtubeApiUrl,
+      cacheKey,
+      "YouTube search"
+    );
+
     if (!result.data.items || !Array.isArray(result.data.items)) {
       return res.status(502).json({
         error: "Invalid response structure from YouTube API",
@@ -228,12 +234,13 @@ app.get("/api/Youtube", async (req, res) => {
     }
 
     return res.status(200).json(result.data);
-    
   } catch (error) {
     console.error("Search API error:", error.message);
-    
+
     return res.status(quotaExhausted ? 429 : 500).json({
-      error: quotaExhausted ? "YouTube API quota exceeded" : "Internal server error",
+      error: quotaExhausted
+        ? "YouTube API quota exceeded"
+        : "Internal server error",
       details: error.message,
       quotaExceeded: quotaExhausted,
       code: quotaExhausted ? 429 : 500,
@@ -252,7 +259,7 @@ app.get("/api/Youtube/video/:videoId", async (req, res) => {
   }
 
   const cacheKey = `video_${videoId}`;
-  
+
   // Sprawdź cache najpierw
   const cachedData = myCache.get(cacheKey);
   if (cachedData) {
@@ -273,20 +280,69 @@ app.get("/api/Youtube/video/:videoId", async (req, res) => {
     const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${encodeURIComponent(
       videoId
     )}&key=${YOUTUBE_API_KEY}`;
-    
+
     const result = await makeYouTubeApiCall(url, cacheKey, "Video details");
-    
+
     if (!result.data.items || result.data.items.length === 0) {
       return res.status(404).json({ error: "Video not found" });
     }
 
     return res.status(200).json(result.data);
-    
   } catch (error) {
     console.error("Video details API error:", error.message);
-    
+
     return res.status(quotaExhausted ? 429 : 500).json({
-      error: quotaExhausted ? "YouTube API quota exceeded" : "Internal error fetching video details",
+      error: quotaExhausted
+        ? "YouTube API quota exceeded"
+        : "Internal error fetching video details",
+      details: error.message,
+      quotaExceeded: quotaExhausted,
+      code: quotaExhausted ? 429 : 500,
+    });
+  }
+});
+
+// Endpoint: Szczegóły kanału (avatar, nazwa itp.)
+app.get("/api/Youtube/channel/:channelId", async (req, res) => {
+  const channelId = req.params.channelId;
+  if (!channelId || channelId.trim() === "") {
+    return res.status(400).json({
+      error: 'Parametr "channelId" jest wymagany.',
+    });
+  }
+
+  const cacheKey = `channel_${channelId}`;
+  // Sprawdź cache
+  const cachedData = myCache.get(cacheKey);
+  if (cachedData) {
+    return res.status(200).json({ ...cachedData, _fromCache: true });
+  }
+
+  // Jeśli quota wyczerpana, zwróć informację
+  if (quotaExhausted) {
+    return res.status(429).json({
+      error: "YouTube API quota exceeded",
+      code: 429,
+      quotaExceeded: true,
+      message: "Serwer osiągnął limit zapytań do YouTube API.",
+    });
+  }
+
+  try {
+    const url = `https://www.googleapis.com/youtube/v3/channels?part=snippet&id=${encodeURIComponent(
+      channelId
+    )}&key=${YOUTUBE_API_KEY}`;
+    const result = await makeYouTubeApiCall(url, cacheKey, "Channel details");
+    if (!result.data.items || result.data.items.length === 0) {
+      return res.status(404).json({ error: "Channel not found" });
+    }
+    return res.status(200).json(result.data);
+  } catch (error) {
+    console.error("Channel details API error:", error.message);
+    return res.status(quotaExhausted ? 429 : 500).json({
+      error: quotaExhausted
+        ? "YouTube API quota exceeded"
+        : "Internal error fetching channel details",
       details: error.message,
       quotaExceeded: quotaExhausted,
       code: quotaExhausted ? 429 : 500,
@@ -298,10 +354,10 @@ app.get("/api/Youtube/video/:videoId", async (req, res) => {
 app.delete("/api/cache", (req, res) => {
   const keys = myCache.keys();
   myCache.flushAll();
-  res.json({ 
-    message: "Cache cleared", 
+  res.json({
+    message: "Cache cleared",
     clearedKeys: keys.length,
-    quotaReset: false // Możesz dodać logikę resetowania quota jeśli potrzebne
+    quotaReset: false, // Możesz dodać logikę resetowania quota jeśli potrzebne
   });
 });
 
@@ -312,12 +368,12 @@ app.use("*", (req, res) => {
     path: req.originalUrl,
     availableEndpoints: [
       "GET /",
-      "GET /health", 
+      "GET /health",
       "GET /api/Youtube?q=query&maxResults=10",
       "GET /api/Youtube/video/:videoId",
       "GET /api/Youtube/quota-status",
-      "DELETE /api/cache"
-    ]
+      "DELETE /api/cache",
+    ],
   });
 });
 
@@ -328,27 +384,27 @@ app.use((err, req, res, next) => {
   res.status(500).json({
     error: "Internal server error",
     message: err.message,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down gracefully");
   process.exit(0);
 });
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully');
+process.on("SIGINT", () => {
+  console.log("SIGINT received, shutting down gracefully");
   process.exit(0);
 });
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Cache TTL: ${myCache.options.stdTTL}s`);
-  
+
   // Sprawdź quota przy starcie
-  checkQuotaStatus().then(quotaOk => {
-    console.log(`📈 Initial quota status: ${quotaOk ? 'OK' : 'EXHAUSTED'}`);
+  checkQuotaStatus().then((quotaOk) => {
+    console.log(`📈 Initial quota status: ${quotaOk ? "OK" : "EXHAUSTED"}`);
   });
 });
