@@ -305,29 +305,17 @@ app.get("/api/Youtube/video/:videoId", async (req, res) => {
 // Endpoint: Szczegóły kanału (avatar, nazwa itp.)
 app.get("/api/Youtube/channel/:channelId", async (req, res) => {
   const channelId = req.params.channelId;
-  if (!channelId || channelId.trim() === "") {
-    return res.status(400).json({
-      error: 'Parametr "channelId" jest wymagany.',
-    });
+  if (!channelId) {
+    return res.status(400).json({ error: "Brak channelId" });
   }
-
   const cacheKey = `channel_${channelId}`;
-  // Sprawdź cache
   const cachedData = myCache.get(cacheKey);
   if (cachedData) {
     return res.status(200).json({ ...cachedData, _fromCache: true });
   }
-
-  // Jeśli quota wyczerpana, zwróć informację
   if (quotaExhausted) {
-    return res.status(429).json({
-      error: "YouTube API quota exceeded",
-      code: 429,
-      quotaExceeded: true,
-      message: "Serwer osiągnął limit zapytań do YouTube API.",
-    });
+    return res.status(429).json({ error: "YouTube API quota exceeded" });
   }
-
   try {
     const url = `https://www.googleapis.com/youtube/v3/channels?part=snippet&id=${encodeURIComponent(
       channelId
@@ -338,15 +326,7 @@ app.get("/api/Youtube/channel/:channelId", async (req, res) => {
     }
     return res.status(200).json(result.data);
   } catch (error) {
-    console.error("Channel details API error:", error.message);
-    return res.status(quotaExhausted ? 429 : 500).json({
-      error: quotaExhausted
-        ? "YouTube API quota exceeded"
-        : "Internal error fetching channel details",
-      details: error.message,
-      quotaExceeded: quotaExhausted,
-      code: quotaExhausted ? 429 : 500,
-    });
+    return res.status(500).json({ error: error.message });
   }
 });
 
