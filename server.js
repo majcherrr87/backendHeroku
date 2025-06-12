@@ -3,6 +3,7 @@ import cors from "cors";
 import NodeCache from "node-cache";
 import dotenv from "dotenv";
 import fetch from "node-fetch";
+import ytdl from "ytdl-core";
 
 // Załaduj zmienne środowiskowe
 dotenv.config();
@@ -10,7 +11,6 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
-const ytdl = require("ytdl-core");
 
 if (!YOUTUBE_API_KEY) {
   console.error("BŁĄD: Brak YouTube API Key w zmiennych środowiskowych");
